@@ -25,24 +25,24 @@ st.markdown(
 
 def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
     """
-    Рассчитывает, сколько коробов разных типов можно разместить на паллете.
+    Рассчитывает, сколько коробов разных типов можно разместить на паллете, включая вес.
     
     Args:
-        boxes (list): Список словарей с данными коробов: [{'length': float, 'width': float, 'height': float, 'count': int}, ...]
+        boxes (list): Список словарей с данными коробов: [{'length': float, 'width': float, 'height': float, 'count': int, 'weight': float}, ...]
         pallet_max_height (float): Максимальная высота паллеты в см.
         allow_full_rotation (bool): Разрешать ли полное вращение коробов.
     
     Returns:
-        dict: Результаты: общее количество помещенных коробов, остаток, слои и ориентации.
+        dict: Результаты: общее количество помещенных коробов, остаток, слои, общий вес.
     """
     # Валидация входных данных
     for box in boxes:
-        if any(x <= 0 for x in [box['length'], box['width'], box['height'], box['count']]):
+        if any(x <= 0 for x in [box['length'], box['width'], box['height'], box['count'], box['weight']]):
             return {
                 "fit_count": 0,
                 "leftover": sum(b['count'] for b in boxes),
                 "layers": [],
-                "total_boxes_per_layer": 0
+                "total_weight": 0
             }
     
     if pallet_max_height <= 0:
@@ -50,7 +50,7 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
             "fit_count": 0,
             "leftover": sum(b['count'] for b in boxes),
             "layers": [],
-            "total_boxes_per_layer": 0
+            "total_weight": 0
         }
 
     # Результаты для каждого типа коробов
@@ -96,6 +96,7 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
     total_height_used = 0
     layers = []
     total_fit_count = 0
+    total_weight = 0
     leftover = {i: boxes[i]['count'] for i in range(len(boxes))}
 
     # Пробуем размещать слои всех типов коробов, пока есть место и коробы
@@ -127,7 +128,8 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
                     "boxes_per_layer": boxes_per_layer,
                     "boxes_in_length": boxes_in_length,
                     "boxes_in_width": boxes_in_width,
-                    "orientation": fit['orientation']
+                    "orientation": fit['orientation'],
+                    "weight": boxes[box_index]['weight']  # Вес одного короба
                 }
                 best_box_index = box_index
 
@@ -137,14 +139,16 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
         # Добавляем лучший слой
         layers.append(best_layer)
         total_height_used += best_layer['orientation'][2]  # Высота слоя
-        total_fit_count += min(leftover[best_box_index], best_layer['boxes_per_layer'])
-        leftover[best_box_index] -= min(leftover[best_box_index], best_layer['boxes_per_layer'])
+        boxes_in_layer = min(leftover[best_box_index], best_layer['boxes_per_layer'])
+        total_fit_count += boxes_in_layer
+        total_weight += boxes_in_layer * best_layer['weight']  # Вес слоя
+        leftover[best_box_index] -= boxes_in_layer
 
     return {
         "fit_count": total_fit_count,
         "leftover": sum(leftover.values()),
         "layers": layers,
-        "total_boxes_per_layer": sum(layer['boxes_per_layer'] for layer in layers)
+        "total_weight": total_weight
     }
 
 def draw_pallet_layout(layers):
@@ -217,7 +221,7 @@ else:
 st.title("Расчёт размещения разных коробов на паллете")
 
 # Пример использования
-st.markdown("**Пример**: Короб 1: 40×30×20 см (5 шт.), Короб 2: 30×20×10 см (10 шт.), паллета 120×80×150 см.")
+st.markdown("**Пример**: Короб 1: 40×30×20 см, вес 2.5 кг (5 шт.), Короб 2: 30×20×10 см, вес 1.0 кг (10 шт.), паллета 120×80×150 см.")
 
 # Управление количеством типов коробов
 if 'box_types' not in st.session_state:
@@ -247,7 +251,8 @@ for i in range(st.session_state.box_types):
     with col2:
         height = st.number_input(f"Высота короба {i + 1} (см)", min_value=1, step=1, value=20, key=f"height_{i}")
         count = st.number_input(f"Количество коробов {i + 1}", min_value=1, step=1, value=5, key=f"count_{i}")
-    boxes.append({"length": length, "width": width, "height": height, "count": count})
+        weight = st.number_input(f"Вес одного короба {i + 1} (кг)", min_value=0.0, step=0.1, value=2.5, key=f"weight_{i}")
+    boxes.append({"length": length, "width": width, "height": height, "count": count, "weight": weight})
 
 # Общие параметры
 pallet_max_height = st.number_input("Макс. высота паллеты (см)", min_value=1, step=1, value=150)
@@ -273,11 +278,13 @@ if calculate:
         st.error("Невозможно разместить короба с заданными параметрами.")
     else:
         st.write(f"**Всего коробов поместилось**: {result['fit_count']}")
+        st.write(f"**Всего вес коробов**: {result['total_weight']:.2f} кг")
         st.write(f"**Осталось вне паллеты**: {result['leftover']}")
         for layer_idx, layer in enumerate(result['layers']):
+            layer_weight = layer['boxes_per_layer'] * layer['weight']
             st.write(f"Слой {layer_idx + 1} (Тип короба {layer['box_index'] + 1}): {layer['boxes_per_layer']} коробов "
                      f"({layer['boxes_in_length']} по длине × {layer['boxes_in_width']} по ширине), "
-                     f"ориентация (Д×Ш×В): {layer['orientation']}")
+                     f"вес слоя: {layer_weight:.2f} кг, ориентация (Д×Ш×В): {layer['orientation']}")
 
         # Визуализация всех слоев и скачивание ZIP
         zip_buffer = draw_pallet_layout(result['layers'])
@@ -328,6 +335,7 @@ if calculate:
             "Коробов в слое": layer['boxes_per_layer'],
             "Коробов по длине": layer['boxes_in_length'],
             "Коробов по ширине": layer['boxes_in_width'],
+            "Вес слоя (кг)": layer['boxes_per_layer'] * layer['weight'],
             "Ориентация (Д×Ш×В)": layer['orientation']
         } for layer_idx, layer in enumerate(result['layers'])]
         result_data.append({
@@ -336,6 +344,7 @@ if calculate:
             "Коробов в слое": result['fit_count'],
             "Коробов по длине": "-",
             "Коробов по ширине": "-",
+            "Вес слоя (кг)": result['total_weight'],
             "Ориентация (Д×Ш×В)": "-"
         })
         result_df = pd.DataFrame(result_data)
