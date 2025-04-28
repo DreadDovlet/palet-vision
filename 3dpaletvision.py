@@ -35,9 +35,13 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
     Returns:
         dict: Результаты: общее количество помещенных коробов, остаток, слои, общий вес.
     """
+    # Отладка: выводим входные данные
+    st.write(f"Debug: Input boxes = {[box for box in boxes]}")
+    
     # Валидация входных данных
     for box in boxes:
-        if any(x <= 0 for x in [box['length'], box['width'], box['height'], box['count'], box['weight']]):
+        if any(x <= 0 for x in [box['length'], box['width'], box['height'], box['count']]) or box['weight'] < 0:
+            st.write(f"Debug: Invalid box data = {box}")
             return {
                 "fit_count": 0,
                 "leftover": sum(b['count'] for b in boxes),
@@ -46,6 +50,7 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
             }
     
     if pallet_max_height <= 0:
+        st.write("Debug: Invalid pallet_max_height")
         return {
             "fit_count": 0,
             "leftover": sum(b['count'] for b in boxes),
@@ -141,8 +146,15 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
         total_height_used += best_layer['orientation'][2]  # Высота слоя
         boxes_in_layer = min(leftover[best_box_index], best_layer['boxes_per_layer'])
         total_fit_count += boxes_in_layer
-        total_weight += boxes_in_layer * best_layer['weight']  # Вес слоя
+        layer_weight = boxes_in_layer * best_layer['weight']
+        total_weight += layer_weight  # Вес слоя
         leftover[best_box_index] -= boxes_in_layer
+
+        # Отладка: вес слоя
+        st.write(f"Debug: Layer {len(layers)}, Type {best_box_index + 1}, Boxes = {boxes_in_layer}, Weight = {layer_weight:.2f} кг")
+
+    # Отладка: итоговый вес
+    st.write(f"Debug: Total weight = {total_weight:.2f} кг")
 
     return {
         "fit_count": total_fit_count,
